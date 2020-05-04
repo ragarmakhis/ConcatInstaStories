@@ -1,10 +1,11 @@
 import os
 import shutil
-import subprocess
 import sys
 
+import ffmpeg
+
 TIME_SEC = '3'
-SIZE = '720x1280'  # TODO: Get size from neighboring videos
+SIZE = '720x1280'
 
 workDir = baseDir = os.path.join(os.environ['HOME'], 'Pictures')
 os.chdir(workDir)
@@ -19,16 +20,32 @@ if len(listOfFiles) == 1:
     os.chdir(workDir)
     listOfFiles = os.listdir(workDir)
     listOfFiles.sort()
+for item in listOfFiles:
+    if item[-3:] == 'mp4':
+        probe = ffmpeg.probe(item)
+        video_stream = next((stream for stream in probe['streams'] if stream['codec_type'] == 'video'), None)
+        width = str(video_stream['width'])
+        height = str(video_stream['height'])
+        SIZE = width + 'x' + height
+        break
 listTempFiles = []
 for i, item in enumerate(listOfFiles):
     if item[-3:] == 'jpg':
         new_item = item[:-3] + 'mp4'
-        subprocess.call(['ffmpeg', '-loop', '1', '-i', item, '-c:v', 'libx264', '-t', TIME_SEC,
-                         '-pix_fmt', 'yuv420p', '-s', SIZE, new_item])
+        (
+            ffmpeg
+            .input(item, loop='1')
+            .output(new_item, vcodec='libx264', t=TIME_SEC, pix_fmt='yuv420p', s=SIZE)
+            .run()
+        )
         item = new_item
     outputTempFile = outputFile + str(i) + '.ts'
-    subprocess.call(['ffmpeg', '-i', item, '-acodec', 'copy', '-vcodec', 'copy',
-                     '-vbsf', 'h264_mp4toannexb', '-f', 'mpegts', outputTempFile])
+    (
+        ffmpeg
+        .input(item)
+        .output(outputTempFile, vcodec='copy', acodec='copy', vbsf='h264_mp4toannexb', f='mpegts')
+        .run()
+    )
     listTempFiles.append(outputTempFile)
 
 destinationFile = open(outputFile + '.ts', 'wb')
@@ -38,8 +55,12 @@ for file in listTempFiles:
     otherFile.close()
 destinationFile.close()
 
-subprocess.call(['ffmpeg', '-i', outputFile + '.ts', '-vcodec', 'copy', '-acodec', 'copy',
-                 os.path.join(baseDir, outputFile + '.mp4')])
+(
+    ffmpeg
+    .input(outputFile + '.ts')
+    .output(os.path.join(baseDir, outputFile + '.mp4'), vcodec='copy', acodec='copy')
+    .run()
+)
 
 for item in listTempFiles:
     os.remove(item)
